@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
 import AuthService from '../services/auth-service';
-
+import { FullPageLoader } from '../components/Loader';
 // Authentication Context
 const AuthContext = createContext({
   user: null,
@@ -175,7 +175,7 @@ export const ProtectedRoute = ({ children }) => {
   const { isAuthenticated, isLoading } = useAuth();
  
   if (isLoading) {
-    return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
+    return <FullPageLoader />;
   }
  
   if (!isAuthenticated) {

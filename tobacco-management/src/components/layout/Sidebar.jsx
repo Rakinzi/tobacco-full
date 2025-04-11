@@ -10,7 +10,9 @@ import {
   X,
   Leaf,
   House,
-  BookMarked
+  BookMarked,
+  TrendingUp,
+  DollarSign
 } from 'lucide-react';
 import { Button } from '../ui/button';
 
@@ -35,17 +37,16 @@ const Sidebar = ({ isOpen, toggleSidebar }) => {
       case 'trader':
         return [
           ...commonItems,
+          { to: '/auction-tracking', icon: <TrendingUp size={16} />, label: 'Auction Tracking' },
           { to: '/company', icon: <House size={16} />, label: 'Company' },
           { to: '/create-auction', icon: <BarChart size={16} />, label: 'Create Auction' },
-          { to: '/orders', icon: <ShoppingCart size={16} />, label: 'Orders' },
-          { to: '/tobacco-details', icon: <FileText size={16} />, label: 'Tobacco Listings' },
+          { to: '/tobacco-listings', icon: <FileText size={16} />, label: 'Tobacco Listings' },
         ];
       case 'buyer':
         return [
           ...commonItems,
-          { to: '/my-bids', icon: <BarChart size={16} />, label: 'My Bids' },
-          { to: '/orders', icon: <ShoppingCart size={16} />, label: 'Orders' },
-
+          { to: '/auction-tracking', icon: <TrendingUp size={16} />, label: 'Auction Tracking' },
+          { to: '/my-bids', icon: <DollarSign size={16} />, label: 'My Bids' },
         ];
       case 'timb_officer':
         return [
