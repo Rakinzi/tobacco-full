@@ -39,6 +39,11 @@ const auctionService = {
   // Place a bid on an auction
   placeBid: async (auctionId, bidData) => {
     return apiClient.post(`/auctions/${auctionId}/bids`, bidData);
+  },
+
+  // Get auction statistics
+  getWonAuctions: async () => {
+    return apiClient.get('/auctions/won');
   }
 };
 

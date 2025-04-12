@@ -31,6 +31,8 @@ Route::middleware('auth:sanctum')->group(function () {
         ]);
     });
 
+    Route::get('/auctions/won', [AuctionController::class, 'wonAuctions']);
+
     // Company profile routes
     Route::prefix('company_profile')->group(function () {
         Route::post('/', [CompanyProfileController::class, 'store']);

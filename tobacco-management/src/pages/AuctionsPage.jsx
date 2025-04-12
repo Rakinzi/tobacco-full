@@ -21,10 +21,56 @@ const AuctionsPage = () => {
   const [filterType, setFilterType] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
+  const [timeRemaining, setTimeRemaining] = useState({});
 
   useEffect(() => {
     fetchAuctions();
   }, []);
+
+  // Countdown timer effect
+  useEffect(() => {
+    if (auctions.length === 0) return;
+    
+    const calculateTimeRemaining = () => {
+      const times = {};
+      
+      auctions.forEach(auction => {
+        const endTime = new Date(auction.end_time);
+        const now = new Date();
+        const total = endTime - now;
+        
+        if (total <= 0) {
+          times[auction.id] = 'Ended';
+          return;
+        }
+        
+        const days = Math.floor(total / (1000 * 60 * 60 * 24));
+        const hours = Math.floor((total % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+        const minutes = Math.floor((total % (1000 * 60 * 60)) / (1000 * 60));
+        const seconds = Math.floor((total % (1000 * 60)) / 1000);
+        
+        if (days > 0) {
+          times[auction.id] = `${days}d ${hours}h ${minutes}m ${seconds}s`;
+        } else if (hours > 0) {
+          times[auction.id] = `${hours}h ${minutes}m ${seconds}s`;
+        } else if (minutes > 0) {
+          times[auction.id] = `${minutes}m ${seconds}s`;
+        } else {
+          times[auction.id] = `${seconds}s`;
+        }
+      });
+      
+      setTimeRemaining(times);
+    };
+    
+    calculateTimeRemaining();
+    
+    // Update countdown every second
+    const timer = setInterval(calculateTimeRemaining, 1000);
+    
+    // Cleanup on unmount
+    return () => clearInterval(timer);
+  }, [auctions]);
 
   const fetchAuctions = async () => {
     setIsLoading(true);
@@ -79,35 +125,26 @@ const AuctionsPage = () => {
           return new Date(b.created_at) - new Date(a.created_at);
       }
     });
-
-  // Format time remaining
-  const getTimeRemaining = (endTime) => {
-    const total = new Date(endTime) - new Date();
-    
-    // If auction has ended
-    if (total <= 0) {
-      return 'Ended';
-    }
-    
-    const days = Math.floor(total / (1000 * 60 * 60 * 24));
-    const hours = Math.floor((total % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-    const minutes = Math.floor((total % (1000 * 60 * 60)) / (1000 * 60));
-    
-    if (days > 0) {
-      return `${days} day${days > 1 ? 's' : ''} ${hours} hr${hours > 1 ? 's' : ''}`;
-    } else if (hours > 0) {
-      return `${hours} hour${hours > 1 ? 's' : ''} ${minutes} min${minutes > 1 ? 's' : ''}`;
-    } else if (minutes > 0) {
-      return `${minutes} minute${minutes > 1 ? 's' : ''}`;
-    } else {
-      return 'Ending soon';
-    }
-  };
   
   // Helper to check if auction is ending soon (within 6 hours)
   const isEndingSoon = (endTime) => {
     const timeLeft = new Date(endTime) - new Date();
     return timeLeft > 0 && timeLeft <= 6 * 60 * 60 * 1000; // 6 hours in milliseconds
+  };
+
+  // Helper to get image URL safely
+  const getTobaccoImageUrl = (listing) => {
+    if (!listing || !listing.images || listing.images.length === 0) {
+      return null;
+    }
+    
+    // Get the first image path
+    const imagePath = listing.images[0].image_path;
+    if (!imagePath) {
+      return null;
+    }
+    
+    return getStorageImageUrl(imagePath);
   };
 
   return (
@@ -233,16 +270,26 @@ const AuctionsPage = () => {
             const listing = auction.tobacco_listing;
             const isEnding = isEndingSoon(auction.end_time);
             const hasEnded = new Date(auction.end_time) < new Date();
-            const showImage = listing.images && listing.images.length > 0;
+            const imageUrl = getTobaccoImageUrl(listing);
             
             return (
               <Card key={auction.id} className="flex flex-col overflow-hidden border-green-500/20 backdrop-blur-sm">
                 <div className="relative h-48 bg-zinc-950/60">
-                  {showImage ? (
+                  {imageUrl ? (
                     <img 
-                      src={getStorageImageUrl(listing.images[0].image_path)} 
+                      src={imageUrl} 
                       alt={listing.batch_number}
                       className="w-full h-full object-cover opacity-90"
+                      onError={(e) => {
+                        e.target.onerror = null;
+                        e.target.src = ""; // A fallback image URL could go here
+                        e.target.parentNode.classList.add("bg-green-500/5");
+                        // Add leaf icon as fallback
+                        const leafIcon = document.createElement("div");
+                        leafIcon.className = "w-full h-full flex items-center justify-center";
+                        leafIcon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-green-500/30"><path d="M11 20A7 7 0 0 1 4 13A7 7 0 0 1 15.71 7.06L20 2"/><path d="M14 17a7 7 0 0 1-13.88-1C.5 10.08 4 8 4 8s1.97 1.46 2 4a4 4 0 0 0 7.92 0"/></svg>`;
+                        e.target.parentNode.appendChild(leafIcon);
+                      }}
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center bg-green-500/5">
@@ -295,7 +342,11 @@ const AuctionsPage = () => {
                   
                   <div className="mt-4 flex items-center text-sm text-white/70">
                     <Clock className="h-4 w-4 mr-1 text-green-500/70" />
-                    <span>{hasEnded ? 'Auction ended' : `Ends in ${getTimeRemaining(auction.end_time)}`}</span>
+                    <span>
+                      {hasEnded 
+                        ? 'Auction ended' 
+                        : `Ends in ${timeRemaining[auction.id] || 'Loading...'}`}
+                    </span>
                   </div>
                   
                   {auction.winner && (

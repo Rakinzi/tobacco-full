@@ -6,14 +6,14 @@ import { Input } from '../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Alert, AlertDescription } from '../components/ui/alert';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
-import { 
-  BarChart, 
-  TrendingUp, 
-  Calendar, 
-  RefreshCw, 
-  Clock, 
-  Filter, 
-  DollarSign, 
+import {
+  BarChart,
+  TrendingUp,
+  Calendar,
+  RefreshCw,
+  Clock,
+  Filter,
+  DollarSign,
   ChevronDown,
   ChevronUp,
   Search,
@@ -62,12 +62,13 @@ const AuctionTrackingPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('won_auctions');
-  
+  const [auctionsWithOrders, setAuctionsWithOrders] = useState({});
+
   // Data states
   const [wonAuctions, setWonAuctions] = useState([]);
   const [myAuctions, setMyAuctions] = useState([]);
   const [orders, setOrders] = useState([]);
-  
+
   // Filter states
   const [searchTerm, setSearchTerm] = useState('');
   const [dateFilter, setDateFilter] = useState('all');
@@ -112,44 +113,60 @@ const AuctionTrackingPage = () => {
 
   // Fetch auctions won by the current buyer
   const fetchWonAuctions = async () => {
-    // In a real app, there would be a specific endpoint for this
-    // For now, we'll get all auctions and filter for ones where winner_id === current user
-    const response = await auctionService.getAllAuctions();
-    
-    if (response.data.status === 'success') {
-      const auctions = response.data.data;
-      const won = auctions.filter(auction => 
-        auction.winner_id === user.id && auction.status === 'ended'
-      );
-      
-      setWonAuctions(won);
-      
-      // Calculate stats
-      const totalValue = won.reduce((sum, auction) => sum + parseFloat(auction.current_price), 0);
-      
-      setStats({
-        totalWon: won.length,
-        totalValue: totalValue,
-        averagePrice: won.length > 0 ? totalValue / won.length : 0
-      });
+    try {
+      const response = await auctionService.getWonAuctions();
+
+      if (response.data.status === 'success') {
+        const wonAuctions = response.data.data;
+        setWonAuctions(wonAuctions);
+
+        // After loading won auctions, check which ones have orders
+        checkExistingOrders(wonAuctions.map(auction => auction.id));
+
+        // Calculate stats
+        const totalValue = wonAuctions.reduce((sum, auction) =>
+          sum + parseFloat(auction.current_price), 0);
+
+        setStats({
+          totalWon: wonAuctions.length,
+          totalValue: totalValue,
+          averagePrice: wonAuctions.length > 0 ? totalValue / wonAuctions.length : 0
+        });
+      }
+    } catch (err) {
+      console.error('Error fetching won auctions:', err);
+      setError(err.response?.data?.message || err.message || 'Failed to fetch won auctions');
+    }
+  };
+
+  const checkExistingOrders = async (auctionIds) => {
+    if (!auctionIds.length) return;
+
+    try {
+      const response = await orderService.checkAuctionOrders(auctionIds);
+      if (response.data.status === 'success') {
+        setAuctionsWithOrders(response.data.data);
+      }
+    } catch (err) {
+      console.error('Error checking existing orders:', err);
     }
   };
 
   // Fetch auctions sold by the current trader
   const fetchMySales = async () => {
     const response = await auctionService.getAllAuctions();
-    
+
     if (response.data.status === 'success') {
       const auctions = response.data.data;
-      const sold = auctions.filter(auction => 
+      const sold = auctions.filter(auction =>
         auction.user_id === user.id && auction.status === 'ended' && auction.winner_id
       );
-      
+
       setMyAuctions(sold);
-      
+
       // Calculate stats
       const totalValue = sold.reduce((sum, auction) => sum + parseFloat(auction.current_price), 0);
-      
+
       setStats({
         totalSold: sold.length,
         totalValue: totalValue,
@@ -161,20 +178,20 @@ const AuctionTrackingPage = () => {
   // Fetch orders
   const fetchOrders = async () => {
     const response = await orderService.getAllOrders();
-    
+
     if (response.data.status === 'success') {
       setOrders(response.data.data);
-      
+
       // Calculate stats
       const totalValue = response.data.data.reduce(
         (sum, order) => sum + parseFloat(order.amount), 0
       );
-      
+
       setStats({
         totalOrders: response.data.data.length,
         totalValue: totalValue,
-        averageOrderValue: response.data.data.length > 0 
-          ? totalValue / response.data.data.length 
+        averageOrderValue: response.data.data.length > 0
+          ? totalValue / response.data.data.length
           : 0
       });
     }
@@ -196,16 +213,16 @@ const AuctionTrackingPage = () => {
     return wonAuctions
       .filter(auction => {
         // Search filter
-        const matchesSearch = 
+        const matchesSearch =
           auction.tobacco_listing.batch_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
           auction.tobacco_listing.grade.toLowerCase().includes(searchTerm.toLowerCase()) ||
           auction.tobacco_listing.description?.toLowerCase().includes(searchTerm.toLowerCase());
-          
+
         // Date filter
         let matchesDate = true;
         const auctionDate = new Date(auction.end_time);
         const now = new Date();
-        
+
         if (dateFilter === 'last_7_days') {
           const sevenDaysAgo = new Date();
           sevenDaysAgo.setDate(now.getDate() - 7);
@@ -219,9 +236,9 @@ const AuctionTrackingPage = () => {
           ninetyDaysAgo.setDate(now.getDate() - 90);
           matchesDate = auctionDate >= ninetyDaysAgo;
         }
-        
+
         // Status filter - not applicable for won auctions, as they're all ended
-        
+
         return matchesSearch && matchesDate;
       })
       .sort((a, b) => {
@@ -245,17 +262,17 @@ const AuctionTrackingPage = () => {
     return myAuctions
       .filter(auction => {
         // Search filter
-        const matchesSearch = 
+        const matchesSearch =
           auction.tobacco_listing.batch_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
           auction.tobacco_listing.grade.toLowerCase().includes(searchTerm.toLowerCase()) ||
           auction.tobacco_listing.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
           auction.winner?.name.toLowerCase().includes(searchTerm.toLowerCase());
-          
+
         // Date filter
         let matchesDate = true;
         const auctionDate = new Date(auction.end_time);
         const now = new Date();
-        
+
         if (dateFilter === 'last_7_days') {
           const sevenDaysAgo = new Date();
           sevenDaysAgo.setDate(now.getDate() - 7);
@@ -269,7 +286,7 @@ const AuctionTrackingPage = () => {
           ninetyDaysAgo.setDate(now.getDate() - 90);
           matchesDate = auctionDate >= ninetyDaysAgo;
         }
-        
+
         return matchesSearch && matchesDate;
       })
       .sort((a, b) => {
@@ -293,16 +310,16 @@ const AuctionTrackingPage = () => {
     return orders
       .filter(order => {
         // Search filter
-        const matchesSearch = 
+        const matchesSearch =
           order.order_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
           order.buyer?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
           order.seller?.name.toLowerCase().includes(searchTerm.toLowerCase());
-          
+
         // Date filter
         let matchesDate = true;
         const orderDate = new Date(order.created_at);
         const now = new Date();
-        
+
         if (dateFilter === 'last_7_days') {
           const sevenDaysAgo = new Date();
           sevenDaysAgo.setDate(now.getDate() - 7);
@@ -316,10 +333,10 @@ const AuctionTrackingPage = () => {
           ninetyDaysAgo.setDate(now.getDate() - 90);
           matchesDate = orderDate >= ninetyDaysAgo;
         }
-        
+
         // Status filter
         const matchesStatus = statusFilter === 'all' || order.status === statusFilter;
-        
+
         return matchesSearch && matchesDate && matchesStatus;
       })
       .sort((a, b) => {
@@ -345,12 +362,12 @@ const AuctionTrackingPage = () => {
   // Export data to CSV
   const exportToCSV = (data, filename) => {
     let csvContent = '';
-    
+
     // Different headers and row data depending on what we're exporting
     if (filename.includes('won-auctions')) {
       // Headers for won auctions
       csvContent = 'Batch Number,Tobacco Type,Grade,Quantity,Final Price,Auction End Date\n';
-      
+
       // Row data
       data.forEach(auction => {
         csvContent += `"${auction.tobacco_listing.batch_number}",`;
@@ -363,7 +380,7 @@ const AuctionTrackingPage = () => {
     } else if (filename.includes('my-sales')) {
       // Headers for my sales
       csvContent = 'Batch Number,Tobacco Type,Buyer,Final Price,Auction End Date\n';
-      
+
       // Row data
       data.forEach(auction => {
         csvContent += `"${auction.tobacco_listing.batch_number}",`;
@@ -375,7 +392,7 @@ const AuctionTrackingPage = () => {
     } else if (filename.includes('orders')) {
       // Headers for orders
       csvContent = 'Order Number,Buyer,Seller,Amount,Status,Delivery Status,Created Date\n';
-      
+
       // Row data
       data.forEach(order => {
         csvContent += `"${order.order_number}",`;
@@ -387,7 +404,7 @@ const AuctionTrackingPage = () => {
         csvContent += `"${formatDate(order.created_at, true)}"\n`;
       });
     }
-    
+
     // Create download link
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
@@ -417,14 +434,14 @@ const AuctionTrackingPage = () => {
           Track auction results, sales, and orders
         </p>
       </div>
-      
+
       {error && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      
+
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <div className="flex justify-between items-center">
           <TabsList>
@@ -434,28 +451,28 @@ const AuctionTrackingPage = () => {
                 <span>Won Auctions</span>
               </TabsTrigger>
             )}
-            
+
             {user.user_type === 'trader' && (
               <TabsTrigger value="my_sales" className="flex items-center gap-2">
                 <DollarSign className="h-4 w-4" />
                 <span>My Sales</span>
               </TabsTrigger>
             )}
-            
+
             <TabsTrigger value="orders" className="flex items-center gap-2">
               <Calendar className="h-4 w-4" />
               <span>Orders</span>
             </TabsTrigger>
-            
+
             <TabsTrigger value="analytics" className="flex items-center gap-2">
               <BarChart className="h-4 w-4" />
               <span>Analytics</span>
             </TabsTrigger>
           </TabsList>
-          
-          <Button 
-            variant="outline" 
-            size="sm" 
+
+          <Button
+            variant="outline"
+            size="sm"
             className="gap-2"
             onClick={() => fetchData()}
           >
@@ -463,7 +480,7 @@ const AuctionTrackingPage = () => {
             <span className="hidden sm:inline">Refresh</span>
           </Button>
         </div>
-        
+
         {/* Won Auctions Tab */}
         <TabsContent value="won_auctions" className="space-y-6">
           {/* Stats Cards */}
@@ -481,7 +498,7 @@ const AuctionTrackingPage = () => {
                 </div>
               </CardContent>
             </Card>
-            
+
             <Card>
               <CardContent className="p-6">
                 <div className="flex justify-between items-start">
@@ -495,7 +512,7 @@ const AuctionTrackingPage = () => {
                 </div>
               </CardContent>
             </Card>
-            
+
             <Card>
               <CardContent className="p-6">
                 <div className="flex justify-between items-start">
@@ -510,7 +527,7 @@ const AuctionTrackingPage = () => {
               </CardContent>
             </Card>
           </div>
-          
+
           {/* Filters */}
           <Card>
             <CardContent className="p-6">
@@ -524,7 +541,7 @@ const AuctionTrackingPage = () => {
                     onChange={(e) => setSearchTerm(e.target.value)}
                   />
                 </div>
-                
+
                 <div className="flex flex-1 flex-col sm:flex-row gap-4">
                   <div className="w-full sm:w-1/3">
                     <Select
@@ -545,7 +562,7 @@ const AuctionTrackingPage = () => {
                       </SelectContent>
                     </Select>
                   </div>
-                  
+
                   <div className="w-full sm:w-1/3">
                     <Select
                       value={sortBy}
@@ -566,9 +583,9 @@ const AuctionTrackingPage = () => {
                     </Select>
                   </div>
                 </div>
-                
-                <Button 
-                  variant="outline" 
+
+                <Button
+                  variant="outline"
                   className="md:w-auto whitespace-nowrap"
                   onClick={() => exportToCSV(filteredWonAuctions, 'won-auctions.csv')}
                 >
@@ -578,7 +595,7 @@ const AuctionTrackingPage = () => {
               </div>
             </CardContent>
           </Card>
-          
+
           {/* Auctions Table */}
           <Card>
             <CardHeader>
@@ -633,8 +650,8 @@ const AuctionTrackingPage = () => {
                           </td>
                           <td className="py-4 px-4 text-right">
                             <div className="flex items-center justify-end gap-2">
-                              <Button 
-                                variant="ghost" 
+                              <Button
+                                variant="ghost"
                                 size="sm"
                                 className="gap-1 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10"
                                 onClick={() => window.location.href = `/auctions/${auction.id}`}
@@ -642,16 +659,28 @@ const AuctionTrackingPage = () => {
                                 <Eye className="h-4 w-4" />
                                 <span>View</span>
                               </Button>
-                              
-                              <Button 
-                                variant="ghost" 
-                                size="sm"
-                                className="gap-1 text-green-400 hover:text-green-300 hover:bg-green-500/10"
-                                onClick={() => window.location.href = `/create-order/${auction.id}`}
-                              >
-                                <ArrowRight className="h-4 w-4" />
-                                <span>Order</span>
-                              </Button>
+
+                              {auctionsWithOrders[auction.id] ? (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="gap-1 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10"
+                                  onClick={() => window.location.href = `/orders/${auctionsWithOrders[auction.id]}`}
+                                >
+                                  <Eye className="h-4 w-4" />
+                                  <span>View Order</span>
+                                </Button>
+                              ) : (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="gap-1 text-green-400 hover:text-green-300 hover:bg-green-500/10"
+                                  onClick={() => window.location.href = `/create-order/${auction.id}`}
+                                >
+                                  <ArrowRight className="h-4 w-4" />
+                                  <span>Order</span>
+                                </Button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -663,7 +692,7 @@ const AuctionTrackingPage = () => {
             </CardContent>
           </Card>
         </TabsContent>
-        
+
         {/* My Sales Tab */}
         <TabsContent value="my_sales" className="space-y-6">
           {/* Stats Cards */}
@@ -681,7 +710,7 @@ const AuctionTrackingPage = () => {
                 </div>
               </CardContent>
             </Card>
-            
+
             <Card>
               <CardContent className="p-6">
                 <div className="flex justify-between items-start">
@@ -695,15 +724,15 @@ const AuctionTrackingPage = () => {
                 </div>
               </CardContent>
             </Card>
-            
+
             <Card>
               <CardContent className="p-6">
                 <div className="flex justify-between items-start">
                   <div>
                     <p className="text-xs text-white/50 uppercase">Average Sale</p>
-                    <h3 className="text-2xl font-bold text-white">{formatCurrency(stats.averagePrice)} 
-                        </h3>
-                        </div>
+                    <h3 className="text-2xl font-bold text-white">{formatCurrency(stats.averagePrice)}
+                    </h3>
+                  </div>
                   <div className="bg-green-500/10 p-2 rounded-full">
                     <BarChart className="h-5 w-5 text-green-500" />
                   </div>
@@ -711,7 +740,7 @@ const AuctionTrackingPage = () => {
               </CardContent>
             </Card>
           </div>
-          
+
           {/* Filters */}
           <Card>
             <CardContent className="p-6">
@@ -725,7 +754,7 @@ const AuctionTrackingPage = () => {
                     onChange={(e) => setSearchTerm(e.target.value)}
                   />
                 </div>
-                
+
                 <div className="flex flex-1 flex-col sm:flex-row gap-4">
                   <div className="w-full sm:w-1/3">
                     <Select
@@ -746,7 +775,7 @@ const AuctionTrackingPage = () => {
                       </SelectContent>
                     </Select>
                   </div>
-                  
+
                   <div className="w-full sm:w-1/3">
                     <Select
                       value={sortBy}
@@ -767,9 +796,9 @@ const AuctionTrackingPage = () => {
                     </Select>
                   </div>
                 </div>
-                
-                <Button 
-                  variant="outline" 
+
+                <Button
+                  variant="outline"
                   className="md:w-auto whitespace-nowrap"
                   onClick={() => exportToCSV(filteredMySales, 'my-sales.csv')}
                 >
@@ -779,7 +808,7 @@ const AuctionTrackingPage = () => {
               </div>
             </CardContent>
           </Card>
-          
+
           {/* Sales Table */}
           <Card>
             <CardHeader>
@@ -834,8 +863,8 @@ const AuctionTrackingPage = () => {
                           </td>
                           <td className="py-4 px-4 text-right">
                             <div className="flex items-center justify-end gap-2">
-                              <Button 
-                                variant="ghost" 
+                              <Button
+                                variant="ghost"
                                 size="sm"
                                 className="gap-1 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10"
                                 onClick={() => window.location.href = `/auctions/${auction.id}`}
@@ -843,6 +872,28 @@ const AuctionTrackingPage = () => {
                                 <Eye className="h-4 w-4" />
                                 <span>View</span>
                               </Button>
+
+                              {auctionsWithOrders[auction.id] ? (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="gap-1 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10"
+                                  onClick={() => window.location.href = `/orders/${auctionsWithOrders[auction.id]}`}
+                                >
+                                  <Eye className="h-4 w-4" />
+                                  <span>View Order</span>
+                                </Button>
+                              ) : (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="gap-1 text-green-400 hover:text-green-300 hover:bg-green-500/10"
+                                  onClick={() => window.location.href = `/create-order/${auction.id}`}
+                                >
+                                  <ArrowRight className="h-4 w-4" />
+                                  <span>Order</span>
+                                </Button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -854,7 +905,7 @@ const AuctionTrackingPage = () => {
             </CardContent>
           </Card>
         </TabsContent>
-        
+
         {/* Orders Tab */}
         <TabsContent value="orders" className="space-y-6">
           {/* Stats Cards */}
@@ -872,7 +923,7 @@ const AuctionTrackingPage = () => {
                 </div>
               </CardContent>
             </Card>
-            
+
             <Card>
               <CardContent className="p-6">
                 <div className="flex justify-between items-start">
@@ -886,7 +937,7 @@ const AuctionTrackingPage = () => {
                 </div>
               </CardContent>
             </Card>
-            
+
             <Card>
               <CardContent className="p-6">
                 <div className="flex justify-between items-start">
@@ -901,7 +952,7 @@ const AuctionTrackingPage = () => {
               </CardContent>
             </Card>
           </div>
-          
+
           {/* Filters */}
           <Card>
             <CardContent className="p-6">
@@ -915,7 +966,7 @@ const AuctionTrackingPage = () => {
                     onChange={(e) => setSearchTerm(e.target.value)}
                   />
                 </div>
-                
+
                 <div className="flex flex-1 flex-col sm:flex-row gap-4">
                   <div className="w-full sm:w-1/3">
                     <Select
@@ -936,7 +987,7 @@ const AuctionTrackingPage = () => {
                       </SelectContent>
                     </Select>
                   </div>
-                  
+
                   <div className="w-full sm:w-1/3">
                     <Select
                       value={statusFilter}
@@ -958,9 +1009,9 @@ const AuctionTrackingPage = () => {
                     </Select>
                   </div>
                 </div>
-                
-                <Button 
-                  variant="outline" 
+
+                <Button
+                  variant="outline"
                   className="md:w-auto whitespace-nowrap"
                   onClick={() => exportToCSV(filteredOrders, 'orders.csv')}
                 >
@@ -970,14 +1021,14 @@ const AuctionTrackingPage = () => {
               </div>
             </CardContent>
           </Card>
-          
+
           {/* Orders Table */}
           <Card>
             <CardHeader>
               <CardTitle className="text-xl">Orders</CardTitle>
               <CardDescription>
-                {user.user_type === 'buyer' ? 'Orders you have placed' : 
-                 user.user_type === 'trader' ? 'Orders for your tobacco' : 'All orders'}
+                {user.user_type === 'buyer' ? 'Orders you have placed' :
+                  user.user_type === 'trader' ? 'Orders for your tobacco' : 'All orders'}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -986,8 +1037,8 @@ const AuctionTrackingPage = () => {
                   <Calendar className="h-12 w-12 text-green-500/20 mx-auto mb-4" />
                   <h3 className="text-xl font-semibold text-white mb-2">No Orders Found</h3>
                   <p className="text-green-500/70 max-w-md mx-auto">
-                    {user.user_type === 'buyer' 
-                      ? 'You haven\'t placed any orders yet. Win auctions to place orders.' 
+                    {user.user_type === 'buyer'
+                      ? 'You haven\'t placed any orders yet. Win auctions to place orders.'
                       : 'No orders have been placed for your tobacco yet.'}
                   </p>
                 </div>
@@ -1028,8 +1079,8 @@ const AuctionTrackingPage = () => {
                           </td>
                           <td className="py-4 px-4">
                             <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${getDeliveryStatusColor(order.delivery_status)}`}>
-                              {order.delivery_status?.replace('_', ' ').charAt(0).toUpperCase() 
-                               + order.delivery_status?.replace('_', ' ').slice(1)}
+                              {order.delivery_status?.replace('_', ' ').charAt(0).toUpperCase()
+                                + order.delivery_status?.replace('_', ' ').slice(1)}
                             </span>
                           </td>
                           <td className="py-4 px-4 text-white/70">
@@ -1037,8 +1088,8 @@ const AuctionTrackingPage = () => {
                           </td>
                           <td className="py-4 px-4 text-right">
                             <div className="flex items-center justify-end gap-2">
-                              <Button 
-                                variant="ghost" 
+                              <Button
+                                variant="ghost"
                                 size="sm"
                                 className="gap-1 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10"
                                 onClick={() => window.location.href = `/orders/${order.id}`}
@@ -1057,7 +1108,7 @@ const AuctionTrackingPage = () => {
             </CardContent>
           </Card>
         </TabsContent>
-        
+
         {/* Analytics Tab */}
         <TabsContent value="analytics" className="space-y-6">
           <Card>
@@ -1080,7 +1131,7 @@ const AuctionTrackingPage = () => {
               </div>
             </CardContent>
           </Card>
-          
+
           {/* Summary Stats */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Summary for Buyer */}
@@ -1111,7 +1162,7 @@ const AuctionTrackingPage = () => {
                 </CardContent>
               </Card>
             )}
-            
+
             {/* Summary for Trader */}
             {user.user_type === 'trader' && (
               <Card>
@@ -1142,7 +1193,7 @@ const AuctionTrackingPage = () => {
                 </CardContent>
               </Card>
             )}
-            
+
             {/* Activity Timeline */}
             <Card>
               <CardHeader>
@@ -1171,7 +1222,7 @@ const AuctionTrackingPage = () => {
                         </div>
                       </div>
                     ))}
-                    
+
                     {/* Recent won auctions */}
                     {wonAuctions.slice(0, 2).map(auction => (
                       <div key={auction.id} className="flex items-start gap-3">
@@ -1188,7 +1239,7 @@ const AuctionTrackingPage = () => {
                         </div>
                       </div>
                     ))}
-                    
+
                     {/* Recent sold auctions */}
                     {myAuctions.slice(0, 2).map(auction => (
                       <div key={auction.id} className="flex items-start gap-3">

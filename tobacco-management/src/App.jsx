@@ -21,8 +21,10 @@ import AdminCompanyVerificationPage from './pages/AdminCompanyVerificationPage';
 import TobaccoListingPage from './pages/TobaccoListingPage';
 import TimbOfficerPage from './pages/TimbOfficerPage';
 import { FullPageLoader } from './components/Loader';
+import { Toaster, toast } from 'react-hot-toast';
 
 function App() {
+
   return (
     <Router>
       <AuthProvider>
@@ -71,8 +73,10 @@ function App() {
           {/* 404 route */}
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
+        <Toaster position="top-right" />
       </AuthProvider>
     </Router>
+    
   );
 }
 

@@ -7,17 +7,28 @@ use App\Models\TobaccoListing;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use App\Notifications\AuctionEndedNotification;
+use Illuminate\Support\Facades\Storage;
 
 class AuctionController extends Controller
 {
     public function index()
     {
-        $auctions = Auction::with(['tobaccoListing', 'user', 'winner'])
+        $auctions = Auction::with([
+            'tobaccoListing',
+            'tobaccoListing.images', // Eager load the tobacco images
+            'user',
+            'winner'
+        ])
             ->when(auth()->user()->user_type === 'trader', function ($query) {
                 return $query->where('user_id', auth()->id());
             })
             ->latest()
             ->get();
+
+        // Transform the response to include image URLs
+        $auctions->each(function ($auction) {
+            $this->addImageUrls($auction);
+        });
 
         return response()->json([
             'status' => 'success',
@@ -59,18 +70,33 @@ class AuctionController extends Controller
         $data['status'] = 'pending';
 
         $auction = Auction::create($data);
+        $auction->load(['tobaccoListing', 'tobaccoListing.images', 'user']);
+
+        // Add image URLs to the response
+        if ($auction instanceof \Illuminate\Database\Eloquent\Collection) {
+            $auction->each(function ($item) {
+                $this->addImageUrls($item);
+            });
+        } else {
+            $this->addImageUrls($auction);
+        }
 
         return response()->json([
             'status' => 'success',
             'message' => 'Auction created successfully',
-            'data' => $auction->load(['tobaccoListing', 'user'])
+            'data' => $auction
         ], 201);
     }
 
     public function show($id)
     {
-        $auction = Auction::with(['tobaccoListing', 'user', 'winner', 'bids.user'])
-            ->findOrFail($id);
+        $auction = Auction::with([
+            'tobaccoListing',
+            'tobaccoListing.images',
+            'user',
+            'winner',
+            'bids.user'
+        ])->findOrFail($id);
 
         // Check and update auction status
         $now = now();
@@ -81,16 +107,28 @@ class AuctionController extends Controller
         }
 
         if ($auction->status === 'active' && $now >= $auction->end_time) {
-            $auction->update(['status' => 'ended']);
+            // Get highest bid and update winner
+            $highestBid = $auction->bids()->orderBy('amount', 'desc')->first();
+
+            $updateData = ['status' => 'ended'];
+
+            if ($highestBid) {
+                $updateData['winner_id'] = $highestBid->user_id;
+                $updateData['current_price'] = $highestBid->amount;
+            }
+
+            $auction->update($updateData);
             $auction->refresh();
         }
+
+        // Add image URLs to the response
+        $this->addImageUrls($auction);
 
         return response()->json([
             'status' => 'success',
             'data' => $auction
         ]);
     }
-
     public function update(Request $request, $id)
     {
         $auction = Auction::findOrFail($id);
@@ -126,11 +164,15 @@ class AuctionController extends Controller
         }
 
         $auction->update($validator->validated());
+        $auction->load(['tobaccoListing', 'tobaccoListing.images', 'user']);
+
+        // Add image URLs to the response
+        $this->addImageUrls($auction);
 
         return response()->json([
             'status' => 'success',
             'message' => 'Auction updated successfully',
-            'data' => $auction->fresh()->load(['tobaccoListing', 'user'])
+            'data' => $auction
         ]);
     }
 
@@ -155,25 +197,21 @@ class AuctionController extends Controller
         }
 
         $auction->update(['status' => 'cancelled']);
+        $auction->load(['tobaccoListing', 'tobaccoListing.images', 'user']);
+
+        // Add image URLs to the response
+        $this->addImageUrls($auction);
 
         return response()->json([
             'status' => 'success',
             'message' => 'Auction cancelled successfully',
-            'data' => $auction->fresh()->load(['tobaccoListing', 'user'])
+            'data' => $auction
         ]);
     }
 
     public function end($id)
     {
         $auction = Auction::findOrFail($id);
-
-        // Only admin or auction owner can end auction
-        if (auth()->user()->user_type !== 'admin' && $auction->user_id !== auth()->id()) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Unauthorized action'
-            ], 403);
-        }
 
         // Get highest bid
         $highestBid = $auction->bids()->orderBy('amount', 'desc')->first();
@@ -191,15 +229,72 @@ class AuctionController extends Controller
             'current_price' => $highestBid->amount
         ]);
 
-        $auction->user->notify(new AuctionEndedNotification($auction));
-        if ($auction->winner) {
-            $auction->winner->notify(new AuctionEndedNotification($auction));
-        }
+        // Notifications...
 
         return response()->json([
             'status' => 'success',
             'message' => 'Auction ended successfully',
-            'data' => $auction->fresh()->load(['winner', 'bids'])
+            'data' => $auction
         ]);
+    }
+
+    /**
+     * Add full image URLs to the tobacco listing images
+     *
+     * @param \App\Models\Auction $auction
+     * @return void
+     */
+    private function addImageUrls($model)
+    {
+        if ($model instanceof \Illuminate\Database\Eloquent\Collection) {
+            $model->each(function ($item) {
+                $this->addImageUrls($item);
+            });
+            return;
+        }
+
+        if ($model instanceof TobaccoListing && $model->images) {
+            $model->images->each(function ($image) {
+                $image->image_url = $this->getImageUrl($image->image_path);
+            });
+        } elseif ($model instanceof Auction && $model->tobaccoListing && $model->tobaccoListing->images) {
+            $model->tobaccoListing->images->each(function ($image) {
+                $image->image_url = $this->getImageUrl($image->image_path);
+            });
+        }
+    }
+
+    public function wonAuctions()
+    {
+        $wonAuctions = Auction::with(['tobaccoListing', 'user'])
+            ->where('winner_id', auth()->id())
+            ->where('status', 'ended')
+            ->get();
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $wonAuctions
+        ]);
+    }
+
+    /**
+     * Get the full URL for an image path
+     *
+     * @param string $path
+     * @return string
+     */
+    private function getImageUrl($path)
+    {
+        if (!$path) {
+            return null;
+        }
+
+        // If the path is already a URL, return it as is
+        if (filter_var($path, FILTER_VALIDATE_URL)) {
+            return $path;
+        }
+
+        // Otherwise, generate a URL using Storage::url()
+        return url(Storage::url($path));
     }
 }
