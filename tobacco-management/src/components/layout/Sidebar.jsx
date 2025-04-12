@@ -38,6 +38,7 @@ const Sidebar = ({ isOpen, toggleSidebar }) => {
         return [
           ...commonItems,
           { to: '/auction-tracking', icon: <TrendingUp size={16} />, label: 'Auction Tracking' },
+          { to: '/trader/orders', icon: <ShoppingCart size={16} />, label: 'My Sales' },
           { to: '/company', icon: <House size={16} />, label: 'Company' },
           { to: '/create-auction', icon: <BarChart size={16} />, label: 'Create Auction' },
           { to: '/tobacco-listings', icon: <FileText size={16} />, label: 'Tobacco Listings' },

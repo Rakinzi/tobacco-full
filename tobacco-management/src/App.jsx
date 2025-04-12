@@ -20,11 +20,11 @@ import CompanyRegistrationPage from './pages/CompanyRegistrationPage';
 import AdminCompanyVerificationPage from './pages/AdminCompanyVerificationPage';
 import TobaccoListingPage from './pages/TobaccoListingPage';
 import TimbOfficerPage from './pages/TimbOfficerPage';
+import TraderOrdersPage from './pages/TraderOrdersPage'; // Add this import
 import { FullPageLoader } from './components/Loader';
 import { Toaster, toast } from 'react-hot-toast';
 
 function App() {
-
   return (
     <Router>
       <AuthProvider>
@@ -56,6 +56,9 @@ function App() {
             <Route path="create-order/:id" element={<CreateOrderPage />} />
             <Route path="orders/:id" element={<OrderDetailsPage />} />
             
+            {/* Trader Orders */}
+            <Route path="trader/orders" element={<TraderOrdersPage />} />
+            
             {/* Profile */}
             <Route path="profile" element={<ProfilePage />} />
             
@@ -76,7 +79,6 @@ function App() {
         <Toaster position="top-right" />
       </AuthProvider>
     </Router>
-    
   );
 }
 

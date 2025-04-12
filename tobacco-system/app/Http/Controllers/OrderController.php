@@ -14,15 +14,31 @@ class OrderController extends Controller
 {
     public function index()
     {
-        $orders = auth()->user()->user_type === 'admin'
-            ? Order::with(['buyer', 'seller', 'auction'])->latest()->get()
-            : Order::with(['buyer', 'seller', 'auction'])
-                ->where(function ($query) {
-                    $query->where('buyer_id', auth()->id())
-                        ->orWhere('seller_id', auth()->id());
-                })
-                ->latest()
-                ->get();
+        // Determine which orders to fetch based on user type
+        $query = Order::with([
+            'buyer', 
+            'seller', 
+            'auction' => function($query) {
+                $query->with([
+                    'tobaccoListing' => function($subQuery) {
+                        $subQuery->with('images');
+                    }
+                ]);
+            }
+        ]);
+
+        // For admin, show all orders
+        if (auth()->user()->user_type === 'admin') {
+            $orders = $query->latest()->get();
+        } 
+        // For traders, show orders where they are the seller
+        elseif (auth()->user()->user_type === 'trader') {
+            $orders = $query->where('seller_id', auth()->id())->latest()->get();
+        } 
+        // For buyers, show orders where they are the buyer
+        else {
+            $orders = $query->where('buyer_id', auth()->id())->latest()->get();
+        }
 
         return response()->json([
             'status' => 'success',
@@ -81,14 +97,34 @@ class OrderController extends Controller
         return response()->json([
             'status' => 'success',
             'message' => 'Order created successfully',
-            'data' => $order->load(['buyer', 'seller', 'auction'])
+            'data' => $order->load([
+                'buyer', 
+                'seller', 
+                'auction' => function($query) {
+                    $query->with([
+                        'tobaccoListing' => function($subQuery) {
+                            $subQuery->with('images');
+                        }
+                    ]);
+                }
+            ])
         ], 201);
     }
 
     public function show($id)
     {
-        $order = Order::with(['buyer', 'seller', 'auction', 'transactions'])
-            ->findOrFail($id);
+        $order = Order::with([
+            'buyer', 
+            'seller', 
+            'auction' => function($query) {
+                $query->with([
+                    'tobaccoListing' => function($subQuery) {
+                        $subQuery->with('images');
+                    }
+                ]);
+            }, 
+            'transactions'
+        ])->findOrFail($id);
 
         // Check if user is buyer, seller or admin
         if (
@@ -141,7 +177,48 @@ class OrderController extends Controller
         return response()->json([
             'status' => 'success',
             'message' => 'Order updated successfully',
-            'data' => $order->fresh()->load(['buyer', 'seller', 'auction'])
+            'data' => $order->fresh()->load([
+                'buyer', 
+                'seller', 
+                'auction' => function($query) {
+                    $query->with([
+                        'tobaccoListing' => function($subQuery) {
+                            $subQuery->with('images');
+                        }
+                    ]);
+                }
+            ])
+        ]);
+    }
+
+    // New method to check existing orders for multiple auctions
+    public function checkAuctionOrders(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'auction_ids' => 'required|array',
+            'auction_ids.*' => 'exists:auctions,id'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => 'error',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        // Find orders for the given auction IDs where the current user is the buyer
+        $orders = Order::whereIn('auction_id', $request->auction_ids)
+            ->where('buyer_id', auth()->id())
+            ->get();
+
+        // Create a map of auction IDs to their corresponding order IDs
+        $auctionOrderMap = $orders->mapWithKeys(function ($order) {
+            return [$order->auction_id => $order->id];
+        });
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $auctionOrderMap
         ]);
     }
 }

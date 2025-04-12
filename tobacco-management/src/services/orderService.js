@@ -19,6 +19,11 @@ const orderService = {
     return apiClient.put(`/orders/${id}`, orderData);
   },
 
+  // Check if orders exist for specific auctions
+  checkAuctionOrders: async (auctionIds) => {
+    return apiClient.post('/orders/check-auction-orders', { auction_ids: auctionIds });
+  },
+
   // Create a transaction for an order
   createTransaction: async (orderId, transactionData) => {
     return apiClient.post(`/orders/${orderId}/transactions`, transactionData);

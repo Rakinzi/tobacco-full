@@ -26,6 +26,7 @@ import {
 import auctionService from '../services/auctionService';
 import orderService from '../services/orderService';
 import { formatCurrency, formatDate, formatTobaccoType, formatWeight } from '../utils/formatters';
+import { useNavigate } from 'react-router-dom';
 
 // Function to get color based on status
 const getStatusColor = (status) => {
@@ -82,6 +83,8 @@ const AuctionTrackingPage = () => {
     totalValue: 0,
     averagePrice: 0
   });
+
+  const navigate = useNavigate();
 
   useEffect(() => {
     // Initial data load based on active tab
@@ -152,7 +155,6 @@ const AuctionTrackingPage = () => {
     }
   };
 
-  // Fetch auctions sold by the current trader
   const fetchMySales = async () => {
     const response = await auctionService.getAllAuctions();
 
@@ -665,7 +667,7 @@ const AuctionTrackingPage = () => {
                                   variant="ghost"
                                   size="sm"
                                   className="gap-1 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10"
-                                  onClick={() => window.location.href = `/orders/${auctionsWithOrders[auction.id]}`}
+                                  onClick={() => navigate(`/orders/${auctionsWithOrders[auction.id]}`)}
                                 >
                                   <Eye className="h-4 w-4" />
                                   <span>View Order</span>
@@ -675,7 +677,7 @@ const AuctionTrackingPage = () => {
                                   variant="ghost"
                                   size="sm"
                                   className="gap-1 text-green-400 hover:text-green-300 hover:bg-green-500/10"
-                                  onClick={() => window.location.href = `/create-order/${auction.id}`}
+                                  onClick={() => navigate(`/create-order/${auction.id}`)}
                                 >
                                   <ArrowRight className="h-4 w-4" />
                                   <span>Order</span>

@@ -74,6 +74,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/', [OrderController::class, 'store']);
         Route::get('/{id}', [OrderController::class, 'show']);
         Route::put('/{id}', [OrderController::class, 'update']);
+        Route::post('/check-auction-orders', [OrderController::class, 'checkAuctionOrders']);
 
         // Transaction routes
         Route::post('/{order_id}/transactions', [TransactionController::class, 'store']);
