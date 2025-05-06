@@ -18,13 +18,22 @@ class ImageDetectionService
     public function sendImagesToPythonDetection(array $imagePaths, $listingId)
     {
         try {
+            // Python endpoint URL from config
+            $pythonUrl = config('services.python_backend.url') . '/detect';
+            $token = config('services.python_backend.token');
+            
             // Prepare multipart form data
             $multipart = [];
             
             // Add images to multipart request
             foreach ($imagePaths as $index => $imagePath) {
-                // Get full path of the image
-                $fullPath = Storage::path($imagePath);
+                // Get full path of the image in storage
+                $fullPath = Storage::disk('public')->path($imagePath);
+                
+                if (!file_exists($fullPath)) {
+                    Log::warning("Image not found at path: {$fullPath}");
+                    continue;
+                }
                 
                 // Create multipart item for each image
                 $multipart[] = [
@@ -34,6 +43,11 @@ class ImageDetectionService
                 ];
             }
 
+            if (empty($multipart)) {
+                Log::warning("No valid images found for listing ID: {$listingId}");
+                return false;
+            }
+
             // Add listing ID to the request
             $multipart[] = [
                 'name' => 'listing_id',
@@ -41,16 +55,18 @@ class ImageDetectionService
             ];
 
             // Send request to Python backend
-            $response = Http::withHeaders([
-                'Accept' => 'application/json',
-                'Authorization' => 'Bearer ' . config('services.python_backend.token')
-            ])->attach($multipart)
-              ->post(config('services.python_backend.url') . '/detect', $multipart);
+            $response = Http::withToken($token)
+                ->acceptJson()
+                ->timeout(30) // Increase timeout for image processing
+                ->withOptions(['verify' => false]) // For local development, disable SSL verification
+                ->post($pythonUrl, [
+                    'multipart' => $multipart
+                ]);
 
             // Log the response
             Log::info('Python Detection Response', [
                 'status' => $response->status(),
-                'body' => $response->body()
+                'body' => $response->json()
             ]);
 
             // Check if the request was successful

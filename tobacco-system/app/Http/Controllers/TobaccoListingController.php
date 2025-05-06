@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\TobaccoListing;
+use App\Services\ImageDetectionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use App\Models\TobaccoListingImage;
@@ -10,6 +11,13 @@ use Illuminate\Support\Facades\Storage;
 
 class TobaccoListingController extends Controller
 {
+    protected $imageDetectionService;
+
+    public function __construct(ImageDetectionService $imageDetectionService)
+    {
+        $this->imageDetectionService = $imageDetectionService;
+    }
+
     /**
      * List all tobacco listings
      */
@@ -60,10 +68,14 @@ class TobaccoListingController extends Controller
 
         $listing = TobaccoListing::create($data);
 
+        // Store image paths for later processing
+        $imagePaths = [];
+
         // Handle image uploads
         if ($request->hasFile('images')) {
             foreach ($request->file('images') as $image) {
                 $path = $image->store('tobacco-images', 'public');
+                $imagePaths[] = $path;
 
                 TobaccoListingImage::create([
                     'tobacco_listing_id' => $listing->id,
@@ -72,9 +84,16 @@ class TobaccoListingController extends Controller
             }
         }
 
+        // Send images to Python API for automatic verification
+        try {
+            $this->imageDetectionService->sendImagesToPythonDetection($imagePaths, $listing->id);
+        } catch (\Exception $e) {
+            \Log::error('Error during tobacco image detection: ' . $e->getMessage());
+        }
+
         return response()->json([
             'status' => 'success',
-            'message' => 'Tobacco listing created successfully',
+            'message' => 'Tobacco listing created successfully. Images are being verified.',
             'data' => $listing->load(['user', 'companyProfile', 'images'])
         ], 201);
     }
@@ -190,8 +209,11 @@ class TobaccoListingController extends Controller
      */
     public function timbClearance($id)
     {
-        // Check if user is TIMB officer
-        if (auth()->user()->user_type !== 'timb_officer') {
+        // Check if request is from API or authenticated user
+        $isApiRequest = request()->header('Authorization') === 'Bearer ' . config('services.python_backend.token');
+
+        // If not API request, check user permissions
+        if (!$isApiRequest && auth()->user()->user_type !== 'timb_officer') {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Unauthorized action'
@@ -209,7 +231,7 @@ class TobaccoListingController extends Controller
 
         return response()->json([
             'status' => 'success',
-            'message' => 'Tobacco listing cleared by TIMB',
+            'message' => 'Tobacco listing cleared by TIMB' . ($isApiRequest ? ' (Automatic)' : ''),
             'data' => $listing->fresh()->load(['user', 'companyProfile'])
         ]);
     }

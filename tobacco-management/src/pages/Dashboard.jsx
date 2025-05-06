@@ -14,167 +14,350 @@ import {
   AlertTriangle,
   Clock,
   FileText,
-  Users
+  Users,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
+import { Alert, AlertDescription } from '../components/ui/alert';
+import auctionService from '../services/auctionService';
+import orderService from '../services/orderService';
+import tobaccoService from '../services/tobaccoService';
+import { formatCurrency, formatTobaccoType } from '../utils/formatters';
 
 const Dashboard = () => {
   const { user } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [dashboardData, setDashboardData] = useState({
     stats: [],
     recentAuctions: [],
-    notifications: []
+    notifications: [],
+    recentOrders: [],
+    activeListings: []
   });
 
   useEffect(() => {
-    // Here you would fetch the dashboard data from your API
-    // This is a placeholder for demonstration purposes
-    
-    const fetchDashboardData = async () => {
-      setIsLoading(true);
-      try {
-        // Simulating API call delay
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        // Generate mock data based on user type
-        const stats = generateMockStats(user?.user_type);
-        const recentAuctions = generateMockAuctions();
-        const notifications = generateMockNotifications();
-        
-        setDashboardData({
-          stats,
-          recentAuctions,
-          notifications
-        });
-      } catch (error) {
-        console.error('Error fetching dashboard data:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    
     fetchDashboardData();
   }, [user]);
 
-  // Generate mock stats based on user type
-  const generateMockStats = (userType) => {
-    switch (userType) {
-      case 'trader':
-        return [
-          { id: 1, title: 'Active Listings', value: '12', icon: <Package className="h-5 w-5 text-emerald-500" />, trend: '+2.5%', color: 'emerald' },
-          { id: 2, title: 'Pending Orders', value: '4', icon: <ShoppingBag className="h-5 w-5 text-blue-500" />, trend: '+12%', color: 'blue' },
-          { id: 3, title: 'Monthly Revenue', value: '$8,532', icon: <DollarSign className="h-5 w-5 text-purple-500" />, trend: '+18.2%', color: 'purple' },
-          { id: 4, title: 'Auction Win Rate', value: '62%', icon: <TrendingUp className="h-5 w-5 text-amber-500" />, trend: '-3.1%', color: 'amber' },
+  const fetchDashboardData = async () => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      // Common data for all user types
+      let stats = [];
+      let recentAuctions = [];
+      let recentOrders = [];
+      let activeListings = [];
+      let notifications = []; // We would fetch these from a notifications endpoint
+
+      // Fetch data based on user type
+      if (user?.user_type === 'trader') {
+        // Get tobacco listings for traders
+        const listingsResponse = await tobaccoService.getAllListings();
+        if (listingsResponse.data.status === 'success') {
+          activeListings = listingsResponse.data.data;
+        }
+        
+        // Get auctions created by the trader
+        const auctionsResponse = await auctionService.getAllAuctions();
+        if (auctionsResponse.data.status === 'success') {
+          recentAuctions = auctionsResponse.data.data
+            .filter(auction => auction.user_id === user.id)
+            .slice(0, 4);
+        }
+        
+        // Get orders where trader is the seller
+        const ordersResponse = await orderService.getAllOrders();
+        if (ordersResponse.data.status === 'success') {
+          recentOrders = ordersResponse.data.data.slice(0, 3);
+        }
+        
+        // Calculate stats
+        const pendingListings = activeListings.filter(listing => listing.status === 'pending').length;
+        const approvedListings = activeListings.filter(listing => listing.status === 'approved').length;
+        const totalSales = recentOrders.reduce((sum, order) => sum + parseFloat(order.amount), 0);
+        const activeAuctions = recentAuctions.filter(auction => auction.status === 'active').length;
+        
+        stats = [
+          { 
+            id: 1, 
+            title: 'Active Listings', 
+            value: String(approvedListings), 
+            icon: <Package className="h-5 w-5 text-emerald-500" />, 
+            trend: pendingListings > 0 ? `+${pendingListings} pending` : '0 pending', 
+            color: 'emerald' 
+          },
+          { 
+            id: 2, 
+            title: 'Pending Orders', 
+            value: String(recentOrders.filter(order => order.status === 'pending').length), 
+            icon: <ShoppingBag className="h-5 w-5 text-blue-500" />, 
+            trend: `${recentOrders.filter(order => order.status === 'paid').length} paid`, 
+            color: 'blue' 
+          },
+          { 
+            id: 3, 
+            title: 'Revenue', 
+            value: formatCurrency(totalSales), 
+            icon: <DollarSign className="h-5 w-5 text-purple-500" />, 
+            trend: `${recentOrders.length} orders`, 
+            color: 'purple' 
+          },
+          { 
+            id: 4, 
+            title: 'Active Auctions', 
+            value: String(activeAuctions), 
+            icon: <TrendingUp className="h-5 w-5 text-amber-500" />, 
+            trend: `${recentAuctions.filter(auction => auction.status === 'ended').length} ended`, 
+            color: 'amber' 
+          },
         ];
-      case 'buyer':
-        return [
-          { id: 1, title: 'Active Bids', value: '7', icon: <Activity className="h-5 w-5 text-emerald-500" />, trend: '+4.3%', color: 'emerald' },
-          { id: 2, title: 'Purchased Items', value: '23', icon: <ShoppingBag className="h-5 w-5 text-blue-500" />, trend: '+8.1%', color: 'blue' },
-          { id: 3, title: 'Total Spent', value: '$12,845', icon: <DollarSign className="h-5 w-5 text-purple-500" />, trend: '+5.4%', color: 'purple' },
-          { id: 4, title: 'Upcoming Deliveries', value: '3', icon: <Calendar className="h-5 w-5 text-amber-500" />, trend: '0%', color: 'amber' },
+      } 
+      else if (user?.user_type === 'buyer') {
+        // Get auctions won by the buyer
+        const wonAuctionsResponse = await auctionService.getWonAuctions();
+        if (wonAuctionsResponse.data.status === 'success') {
+          recentAuctions = wonAuctionsResponse.data.data.slice(0, 4);
+        }
+        
+        // Get active auctions
+        const auctionsResponse = await auctionService.getAllAuctions();
+        if (auctionsResponse.data.status === 'success') {
+          // Filter for active auctions
+          const activeAuctions = auctionsResponse.data.data
+            .filter(auction => auction.status === 'active')
+            .slice(0, 4);
+            
+          recentAuctions = [...recentAuctions, ...activeAuctions]
+            .slice(0, 4); // Keep only the 4 most recent
+        }
+        
+        // Get orders where buyer is the buyer
+        const ordersResponse = await orderService.getAllOrders();
+        if (ordersResponse.data.status === 'success') {
+          recentOrders = ordersResponse.data.data.slice(0, 3);
+        }
+        
+        // Calculate stats
+        const totalSpent = recentOrders.reduce((sum, order) => sum + parseFloat(order.amount), 0);
+        const activeAuctions = recentAuctions.filter(auction => auction.status === 'active').length;
+        const wonAuctions = recentAuctions.filter(auction => auction.winner_id === user.id).length;
+        
+        stats = [
+          { 
+            id: 1, 
+            title: 'Active Bids', 
+            value: String(activeAuctions), 
+            icon: <Activity className="h-5 w-5 text-emerald-500" />, 
+            trend: `${activeAuctions} auctions`, 
+            color: 'emerald' 
+          },
+          { 
+            id: 2, 
+            title: 'Purchased Items', 
+            value: String(recentOrders.length), 
+            icon: <ShoppingBag className="h-5 w-5 text-blue-500" />, 
+            trend: `${recentOrders.filter(order => order.status === 'completed').length} completed`, 
+            color: 'blue' 
+          },
+          { 
+            id: 3, 
+            title: 'Total Spent', 
+            value: formatCurrency(totalSpent), 
+            icon: <DollarSign className="h-5 w-5 text-purple-500" />, 
+            trend: `${wonAuctions} won auctions`, 
+            color: 'purple' 
+          },
+          { 
+            id: 4, 
+            title: 'Upcoming Deliveries', 
+            value: String(recentOrders.filter(order => order.delivery_status === 'scheduled').length), 
+            icon: <Calendar className="h-5 w-5 text-amber-500" />, 
+            trend: `${recentOrders.filter(order => order.delivery_status === 'in_transit').length} in transit`, 
+            color: 'amber' 
+          },
         ];
-      case 'timb_officer':
-        return [
-          { id: 1, title: 'Pending Clearances', value: '18', icon: <AlertTriangle className="h-5 w-5 text-amber-500" />, trend: '+3', color: 'amber' },
-          { id: 2, title: 'Approved Today', value: '7', icon: <Activity className="h-5 w-5 text-emerald-500" />, trend: '+2', color: 'emerald' },
-          { id: 3, title: 'Total Tobacco Volume', value: '24.5 tons', icon: <Package className="h-5 w-5 text-blue-500" />, trend: '+12.3%', color: 'blue' },
-          { id: 4, title: 'Average Clearance Time', value: '1.8 days', icon: <Clock className="h-5 w-5 text-purple-500" />, trend: '-8%', color: 'purple' },
+      } 
+      else if (user?.user_type === 'timb_officer') {
+        // Get tobacco listings for TIMB officers to review
+        const listingsResponse = await tobaccoService.getAllListings();
+        if (listingsResponse.data.status === 'success') {
+          activeListings = listingsResponse.data.data;
+        }
+        
+        // Calculate stats
+        const pendingClearances = activeListings.filter(listing => listing.status === 'pending').length;
+        const approvedToday = activeListings.filter(listing => {
+          if (listing.status !== 'approved') return false;
+          
+          const today = new Date();
+          const clearedDate = new Date(listing.timb_cleared_at);
+          return clearedDate.toDateString() === today.toDateString();
+        }).length;
+        
+        const totalTobaccoVolume = activeListings.reduce((sum, listing) => {
+          return sum + (parseFloat(listing.quantity) || 0);
+        }, 0);
+        
+        stats = [
+          { 
+            id: 1, 
+            title: 'Pending Clearances', 
+            value: String(pendingClearances), 
+            icon: <AlertTriangle className="h-5 w-5 text-amber-500" />, 
+            trend: `${pendingClearances} to review`, 
+            color: 'amber' 
+          },
+          { 
+            id: 2, 
+            title: 'Approved Today', 
+            value: String(approvedToday), 
+            icon: <Activity className="h-5 w-5 text-emerald-500" />, 
+            trend: `${approvedToday} batches`, 
+            color: 'emerald' 
+          },
+          { 
+            id: 3, 
+            title: 'Total Tobacco Volume', 
+            value: `${totalTobaccoVolume.toLocaleString()} kg`, 
+            icon: <Package className="h-5 w-5 text-blue-500" />, 
+            trend: `${activeListings.length} batches`, 
+            color: 'blue' 
+          },
+          { 
+            id: 4, 
+            title: 'Average Processing Time', 
+            value: '1.8 days', // This would require more complex calculation
+            icon: <Clock className="h-5 w-5 text-purple-500" />, 
+            trend: 'Last 30 days', 
+            color: 'purple' 
+          },
         ];
-      case 'admin':
-        return [
-          { id: 1, title: 'Active Users', value: '238', icon: <Activity className="h-5 w-5 text-emerald-500" />, trend: '+12', color: 'emerald' },
-          { id: 2, title: 'Platform Revenue', value: '$24,532', icon: <DollarSign className="h-5 w-5 text-blue-500" />, trend: '+15.2%', color: 'blue' },
-          { id: 3, title: 'Active Auctions', value: '42', icon: <Package className="h-5 w-5 text-purple-500" />, trend: '+8', color: 'purple' },
-          { id: 4, title: 'Daily Transactions', value: '156', icon: <BarChart className="h-5 w-5 text-amber-500" />, trend: '+23.5%', color: 'amber' },
+        
+        // Get the recent approved listings for display
+        recentAuctions = activeListings
+          .filter(listing => listing.status === 'approved')
+          .slice(0, 4)
+          .map(listing => ({
+            id: listing.id,
+            title: `${listing.batch_number} - ${formatTobaccoType(listing.tobacco_type)}`,
+            current_price: listing.minimum_price,
+            bids: 0,
+            ends_at: listing.timb_cleared_at,
+            status: 'approved'
+          }));
+      } 
+      else if (user?.user_type === 'admin') {
+        // Admin dashboard data
+        // Get all users (would need an endpoint)
+        // Get all auctions
+        const auctionsResponse = await auctionService.getAllAuctions();
+        if (auctionsResponse.data.status === 'success') {
+          recentAuctions = auctionsResponse.data.data.slice(0, 4);
+        }
+        
+        // Get all orders
+        const ordersResponse = await orderService.getAllOrders();
+        if (ordersResponse.data.status === 'success') {
+          recentOrders = ordersResponse.data.data.slice(0, 3);
+        }
+        
+        // Get all listings
+        const listingsResponse = await tobaccoService.getAllListings();
+        if (listingsResponse.data.status === 'success') {
+          activeListings = listingsResponse.data.data;
+        }
+        
+        // Calculate stats
+        const totalRevenue = recentOrders.reduce((sum, order) => sum + parseFloat(order.amount), 0);
+        const activeAuctions = recentAuctions.filter(auction => auction.status === 'active').length;
+        const dailyTransactions = recentOrders.filter(order => {
+          const today = new Date();
+          const orderDate = new Date(order.created_at);
+          return orderDate.toDateString() === today.toDateString();
+        }).length;
+        
+        stats = [
+          { 
+            id: 1, 
+            title: 'Active Users', 
+            value: '20+', // Would need a users endpoint
+            icon: <Users className="h-5 w-5 text-emerald-500" />, 
+            trend: 'Growing', 
+            color: 'emerald' 
+          },
+          { 
+            id: 2, 
+            title: 'Platform Revenue', 
+            value: formatCurrency(totalRevenue), 
+            icon: <DollarSign className="h-5 w-5 text-blue-500" />, 
+            trend: `${recentOrders.length} orders`, 
+            color: 'blue' 
+          },
+          { 
+            id: 3, 
+            title: 'Active Auctions', 
+            value: String(activeAuctions), 
+            icon: <Package className="h-5 w-5 text-purple-500" />, 
+            trend: `${recentAuctions.length} total`, 
+            color: 'purple' 
+          },
+          { 
+            id: 4, 
+            title: 'Daily Transactions', 
+            value: String(dailyTransactions), 
+            icon: <BarChart className="h-5 w-5 text-amber-500" />, 
+            trend: `${recentOrders.filter(order => order.status === 'completed').length} completed`, 
+            color: 'amber' 
+          },
         ];
-      default:
-        return [];
+      }
+
+      // Set the dashboard data
+      setDashboardData({
+        stats,
+        recentAuctions,
+        notifications,
+        recentOrders,
+        activeListings
+      });
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+      setError('Failed to load dashboard data. Please try again later.');
+    } finally {
+      setIsLoading(false);
     }
-  };
-
-  // Generate mock auctions
-  const generateMockAuctions = () => {
-    return [
-      { 
-        id: 1, 
-        title: 'Premium Flue-Cured Virginia Tobacco', 
-        current_price: 350.00, 
-        bids: 8, 
-        ends_at: '2025-03-15 18:00:00',
-        status: 'active' 
-      },
-      { 
-        id: 2, 
-        title: 'Organic Burley Tobacco Batch #FB284', 
-        current_price: 280.50, 
-        bids: 5, 
-        ends_at: '2025-03-16 14:30:00',
-        status: 'active' 
-      },
-      { 
-        id: 3, 
-        title: 'Dark Fired Kentucky Tobacco', 
-        current_price: 420.75, 
-        bids: 12, 
-        ends_at: '2025-03-14 09:45:00',
-        status: 'ending_soon' 
-      },
-      { 
-        id: 4, 
-        title: 'Premium Oriental Tobacco', 
-        current_price: 385.25, 
-        bids: 7, 
-        ends_at: '2025-03-14 21:15:00',
-        status: 'active' 
-      },
-    ];
-  };
-
-  // Generate mock notifications
-  const generateMockNotifications = () => {
-    return [
-      { 
-        id: 1, 
-        title: 'New bid placed', 
-        message: 'A new bid of $355.00 has been placed on your "Premium Flue-Cured Virginia" auction.',
-        time: '15 minutes ago',
-        read: false,
-        type: 'bid' 
-      },
-      { 
-        id: 2, 
-        title: 'Auction ended', 
-        message: 'Your auction for "Burley Tobacco Batch #FB124" has ended with a winning bid of $298.50.',
-        time: '2 hours ago',
-        read: true,
-        type: 'auction' 
-      },
-      { 
-        id: 3, 
-        title: 'Order status update', 
-        message: 'Your order #ORD-2023-000123 has been shipped and is on its way.',
-        time: '1 day ago',
-        read: true,
-        type: 'order' 
-      },
-      { 
-        id: 4, 
-        title: 'New message', 
-        message: 'You have a new message from support regarding your recent query.',
-        time: '2 days ago',
-        read: true,
-        type: 'message' 
-      },
-    ];
   };
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="flex flex-col items-center space-y-4">
-          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+          <Loader2 className="h-12 w-12 animate-spin text-primary" />
           <p className="text-lg text-muted-foreground">Loading dashboard...</p>
         </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-8">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+          <p className="text-muted-foreground">
+            Welcome back, {user?.name}! Here's an overview of your activities.
+          </p>
+        </div>
+        
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+        
+        <Button onClick={fetchDashboardData}>Retry</Button>
       </div>
     );
   }
@@ -206,9 +389,6 @@ const Dashboard = () => {
                 <span className={`text-xs font-medium text-${stat.color}-600 dark:text-${stat.color}-400`}>
                   {stat.trend}
                 </span>
-                <span className="text-xs text-muted-foreground ml-1">
-                  from last month
-                </span>
               </div>
             </CardContent>
           </Card>
@@ -220,35 +400,53 @@ const Dashboard = () => {
         {/* Recent auctions */}
         <Card className="lg:col-span-2 shadow-sm border-border">
           <CardHeader className="pb-3">
-            <CardTitle>Recent Auctions</CardTitle>
+            <CardTitle>
+              {user?.user_type === 'buyer' ? 'Recent Auctions' : 
+               user?.user_type === 'trader' ? 'Your Auctions' :
+               user?.user_type === 'timb_officer' ? 'Recent Approved Listings' :
+               'Platform Auctions'}
+            </CardTitle>
             <CardDescription>
-              Browse and manage recent tobacco auctions.
+              {user?.user_type === 'buyer' ? 'Browse and bid on tobacco auctions' : 
+               user?.user_type === 'trader' ? 'Manage your tobacco auctions' :
+               user?.user_type === 'timb_officer' ? 'Recently approved tobacco listings' :
+               'Monitor auction activity across the platform'}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {dashboardData.recentAuctions.map((auction) => (
-                <div key={auction.id} className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-accent/50 transition duration-150">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-3 h-3 rounded-full ${
-                      auction.status === 'ending_soon' ? 'bg-amber-500' : 'bg-emerald-500'
-                    }`}></div>
-                    <div>
-                      <h4 className="text-sm font-medium">{auction.title}</h4>
-                      <div className="text-xs text-muted-foreground mt-1">
-                        <span className="font-medium text-primary">
-                          ${auction.current_price.toFixed(2)}
-                        </span>
-                        {' '} · {auction.bids} bids · Ends {new Date(auction.ends_at).toLocaleDateString()}
+              {dashboardData.recentAuctions.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  No recent auctions available
+                </div>
+              ) : (
+                dashboardData.recentAuctions.map((auction) => (
+                  <div key={auction.id} className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-accent/50 transition duration-150">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-3 h-3 rounded-full ${
+                        auction.status === 'ending_soon' ? 'bg-amber-500' : 
+                        auction.status === 'active' ? 'bg-emerald-500' :
+                        auction.status === 'ended' ? 'bg-blue-500' :
+                        auction.status === 'approved' ? 'bg-green-500' :
+                        'bg-muted'
+                      }`}></div>
+                      <div>
+                        <h4 className="text-sm font-medium">{auction.title || auction.tobacco_listing?.batch_number || `Auction #${auction.id}`}</h4>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          <span className="font-medium text-primary">
+                            {formatCurrency(auction.current_price)}
+                          </span>
+                          {' '} · {auction.bids || 0} bids · {auction.status === 'active' ? `Ends ${new Date(auction.end_time || auction.ends_at).toLocaleDateString()}` : auction.status}
+                        </div>
                       </div>
                     </div>
+                    
+                    <Link to={`/auctions/${auction.id}`}>
+                      <Button variant="ghost" size="sm">View</Button>
+                    </Link>
                   </div>
-                  
-                  <Link to={`/auctions/${auction.id}`}>
-                    <Button variant="ghost" size="sm">View</Button>
-                  </Link>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </CardContent>
           <CardFooter className="pt-3 border-t">
@@ -261,34 +459,41 @@ const Dashboard = () => {
         {/* Notifications */}
         <Card className="shadow-sm border-border">
           <CardHeader className="pb-3">
-            <CardTitle>Recent Notifications</CardTitle>
+            <CardTitle>Recent Activity</CardTitle>
             <CardDescription>
-              Stay updated with your latest activities.
+              Stay updated with your latest activities
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {dashboardData.notifications.map((notification) => (
-                <div key={notification.id} className={`p-3 rounded-lg border ${
-                  notification.read ? 'border-border' : 'border-primary/50 bg-primary/5'
-                }`}>
-                  <h4 className="text-sm font-medium flex items-center">
-                    {!notification.read && <span className="w-2 h-2 rounded-full bg-primary mr-2"></span>}
-                    {notification.title}
-                  </h4>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {notification.message}
-                  </p>
-                  <div className="text-xs text-muted-foreground mt-2">
-                    {notification.time}
-                  </div>
+              {dashboardData.recentOrders.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  No recent activity available
                 </div>
-              ))}
+              ) : (
+                dashboardData.recentOrders.map((order) => (
+                  <div key={order.id} className="p-3 rounded-lg border border-border">
+                    <h4 className="text-sm font-medium flex items-center">
+                      Order #{order.order_number}
+                    </h4>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {order.status === 'pending' ? 'Payment pending' : 
+                       order.status === 'paid' ? 'Payment received' :
+                       order.status === 'completed' ? 'Order completed' :
+                       'Order ' + order.status}
+                    </p>
+                    <div className="text-xs text-muted-foreground mt-2 flex justify-between">
+                      <span>{new Date(order.created_at).toLocaleDateString()}</span>
+                      <span className="font-medium">{formatCurrency(order.amount)}</span>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </CardContent>
           <CardFooter className="pt-3 border-t">
-            <Button variant="outline" className="w-full">
-              View All Notifications
+            <Button variant="outline" className="w-full" asChild>
+              <Link to="/auction-tracking">View All Activity</Link>
             </Button>
           </CardFooter>
         </Card>
@@ -298,52 +503,68 @@ const Dashboard = () => {
       <div className="flex flex-wrap gap-4">
         {user?.user_type === 'trader' && (
           <>
-            <Button className="gap-2">
-              <Package className="h-4 w-4" />
-              <span>Create New Listing</span>
+            <Button className="gap-2" asChild>
+              <Link to="/tobacco-listings">
+                <Package className="h-4 w-4" />
+                <span>Manage Listings</span>
+              </Link>
             </Button>
-            <Button variant="outline" className="gap-2">
-              <BarChart className="h-4 w-4" />
-              <span>View Sales Reports</span>
+            <Button variant="outline" className="gap-2" asChild>
+              <Link to="/trader/orders">
+                <ShoppingBag className="h-4 w-4" />
+                <span>View Orders</span>
+              </Link>
             </Button>
           </>
         )}
         
         {user?.user_type === 'buyer' && (
           <>
-            <Button className="gap-2">
-              <Package className="h-4 w-4" />
-              <span>Browse Auctions</span>
+            <Button className="gap-2" asChild>
+              <Link to="/auctions">
+                <Package className="h-4 w-4" />
+                <span>Browse Auctions</span>
+              </Link>
             </Button>
-            <Button variant="outline" className="gap-2">
-              <ShoppingBag className="h-4 w-4" />
-              <span>View My Orders</span>
+            <Button variant="outline" className="gap-2" asChild>
+              <Link to="/auction-tracking">
+                <ShoppingBag className="h-4 w-4" />
+                <span>View My Orders</span>
+              </Link>
             </Button>
           </>
         )}
         
         {user?.user_type === 'timb_officer' && (
           <>
-            <Button className="gap-2">
-              <AlertTriangle className="h-4 w-4" />
-              <span>Review Pending Clearances</span>
+            <Button className="gap-2" asChild>
+              <Link to="/timb-officer">
+                <AlertTriangle className="h-4 w-4" />
+                <span>Review Pending Clearances</span>
+              </Link>
             </Button>
-            <Button variant="outline" className="gap-2">
-              <FileText className="h-4 w-4" />
-              <span>Generate Reports</span>
+            <Button variant="outline" className="gap-2" asChild>
+              <Link to="/tobacco-listings">
+                <FileText className="h-4 w-4" />
+                <span>View All Listings</span>
+              </Link>
             </Button>
           </>
         )}
         
         {user?.user_type === 'admin' && (
           <>
-            <Button className="gap-2">
-              <Users className="h-4 w-4" />
-              <span>Manage Users</span>
+            <Button className="gap-2" asChild>
+              <Link to="/admin/company-verification">
+                <Users className="h-4 w-4" />
+                <span>Manage Companies</span>
+              </Link>
             </Button>
-            <Button variant="outline" className="gap-2">
-              <BarChart className="h-4 w-4" />
-              <span>Platform Analytics</span>
+            <Button variant="outline" className="gap-2" asChild>
+              <Link to="/auction-tracking">
+                <BarChart className="h-4 w-4" />
+                <span>Platform Analytics</span>
+              </Link>
             </Button>
           </>
         )}
