@@ -117,6 +117,10 @@ return [
     | Supported drivers: "file", "cache"
     |
     */
+    'python_backend' => [
+        'url' => env('PYTHON_BACKEND_URL', 'http://127.0.0.1:5000'),
+        'token' => env('PYTHON_BACKEND_TOKEN', '9|ba31ub4psyo25ZvGn1DJGySmfRnCISmWI2EDDhwK42d03d22'),
+    ],
 
     'maintenance' => [
         'driver' => env('APP_MAINTENANCE_DRIVER', 'file'),
