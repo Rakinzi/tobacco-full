@@ -9,26 +9,42 @@ const apiClient = axios.create({
   }
 });
 
-// Initialize the axios header when the module loads
-const token = localStorage.getItem('token');
-if (token) {
-  apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-}
+// Add request interceptor to dynamically get token from localStorage for each request
+apiClient.interceptors.request.use(
+  (config) => {
+    // Get the latest token from localStorage for every request
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
 
-// Add response interceptor to handle common errors
+// Add response interceptor with more selective handling of 401 errors
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     const { response } = error;
    
-    // Handle session expiration or unauthorized access
+    // Only log out for authentication endpoint failures
+    // This prevents premature logouts while browsing
     if (response && response.status === 401) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
+      console.log('401 error from:', response.config.url);
       
-      // Only redirect if we're in a browser environment
-      if (typeof window !== 'undefined') {
-        window.location.href = '/login';
+      // Only log out for specific auth endpoints
+      if (response.config.url.includes('/login') || 
+          response.config.url.includes('/user') ||
+          response.config.url.includes('/logout')) {
+        console.log('Logging out due to auth endpoint failure');
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        
+        // Only redirect if we're in a browser environment
+        if (typeof window !== 'undefined') {
+          window.location.href = '/login';
+        }
       }
     }
    
@@ -36,7 +52,7 @@ apiClient.interceptors.response.use(
   }
 );
 
-// Export the method to update auth token for use by other services
+// Export a function to refresh auth token
 export const setAuthToken = (token) => {
   if (token) {
     apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;

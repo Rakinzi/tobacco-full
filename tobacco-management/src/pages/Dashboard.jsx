@@ -45,6 +45,7 @@ const Dashboard = () => {
     setError(null);
     
     try {
+      console.log("Fetching dashboard data for user:", user?.name, user?.user_type);
       // Common data for all user types
       let stats = [];
       let recentAuctions = [];
@@ -324,7 +325,7 @@ const Dashboard = () => {
         activeListings
       });
     } catch (error) {
-      console.error('Error fetching dashboard data:', error);
+      console.error('Error fetching dashboard data:', error.message);
       setError('Failed to load dashboard data. Please try again later.');
     } finally {
       setIsLoading(false);
