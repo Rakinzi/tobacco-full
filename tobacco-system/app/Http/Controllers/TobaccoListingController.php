@@ -3,21 +3,15 @@
 namespace App\Http\Controllers;
 
 use App\Models\TobaccoListing;
-use App\Services\ImageDetectionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use App\Models\TobaccoListingImage;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class TobaccoListingController extends Controller
 {
-    protected $imageDetectionService;
-
-    public function __construct(ImageDetectionService $imageDetectionService)
-    {
-        $this->imageDetectionService = $imageDetectionService;
-    }
-
     /**
      * List all tobacco listings
      */
@@ -35,6 +29,7 @@ class TobaccoListingController extends Controller
             'data' => $listings
         ]);
     }
+    
     /**
      * Store a new tobacco listing
      */
@@ -86,9 +81,10 @@ class TobaccoListingController extends Controller
 
         // Send images to Python API for automatic verification
         try {
-            $this->imageDetectionService->sendImagesToPythonDetection($imagePaths, $listing->id);
+            // Send images directly to Python backend
+            $this->sendImagesToPythonDetection($imagePaths, $listing->id);
         } catch (\Exception $e) {
-            \Log::error('Error during tobacco image detection: ' . $e->getMessage());
+            Log::error('Error during tobacco image detection: ' . $e->getMessage());
         }
 
         return response()->json([
@@ -96,6 +92,87 @@ class TobaccoListingController extends Controller
             'message' => 'Tobacco listing created successfully. Images are being verified.',
             'data' => $listing->load(['user', 'companyProfile', 'images'])
         ], 201);
+    }
+
+    /**
+     * Send images to Python backend for tobacco detection
+     * 
+     * @param array $imagePaths Array of image paths
+     * @param int $listingId Tobacco listing ID
+     * @return bool
+     */
+    private function sendImagesToPythonDetection(array $imagePaths, $listingId)
+    {
+        try {
+            // Get Python endpoint URL and token directly from env variables
+            $pythonUrl = env('PYTHON_BACKEND_URL', 'http://127.0.0.1:5000') . '/detect';
+            $token = env('PYTHON_BACKEND_TOKEN', '20|GLR9cgxftGWtVQd3BXMTY04lhynVZg61DkUJFItJ063d415b');
+            
+            // Create a request instance
+            $request = Http::withToken($token)
+                ->acceptJson()
+                ->timeout(30)
+                ->withOptions(['verify' => false]);
+            
+            // Counter for valid images
+            $validImageCount = 0;
+            
+            // Add images to request one by one
+            foreach ($imagePaths as $index => $imagePath) {
+                // Get full path of the image in storage
+                $fullPath = Storage::disk('public')->path($imagePath);
+                
+                if (!file_exists($fullPath)) {
+                    Log::warning("Image not found at path: {$fullPath}");
+                    continue;
+                }
+                
+                // Attach each file individually
+                $request = $request->attach(
+                    "images[]",             // Name expected by Flask
+                    fopen($fullPath, 'r'),  // File contents
+                    basename($fullPath)     // Original filename
+                );
+                
+                $validImageCount++;
+            }
+
+            if ($validImageCount === 0) {
+                Log::warning("No valid images found for listing ID: {$listingId}");
+                return false;
+            }
+            
+            // Add listing ID to form data
+            $formData = ['listing_id' => $listingId];
+            
+            // Log what we're about to send
+            Log::info("Sending request to Python backend", [
+                'url' => $pythonUrl,
+                'listing_id' => $listingId,
+                'image_count' => $validImageCount
+            ]);
+
+            // Send request to Python backend with both form data and files
+            $response = $request->post($pythonUrl, $formData);
+
+            // Log the response
+            Log::info('Python Detection Response', [
+                'status' => $response->status(),
+                'body' => $response->json()
+            ]);
+
+            // Check if the request was successful
+            return $response->successful();
+
+        } catch (\Exception $e) {
+            // Log any errors
+            Log::error('Error sending images to Python backend', [
+                'message' => $e->getMessage(),
+                'listing_id' => $listingId
+            ]);
+
+            return false;
+        }
     }
 
     /**
@@ -210,7 +287,7 @@ class TobaccoListingController extends Controller
     public function timbClearance($id)
     {
         // Check if request is from API or authenticated user
-        $isApiRequest = request()->header('Authorization') === 'Bearer ' . config('services.python_backend.token');
+        $isApiRequest = request()->header('Authorization') === 'Bearer ' . env('PYTHON_BACKEND_TOKEN', '20|GLR9cgxftGWtVQd3BXMTY04lhynVZg61DkUJFItJ063d415b');
 
         // If not API request, check user permissions
         if (!$isApiRequest && auth()->user()->user_type !== 'timb_officer') {

@@ -20,46 +20,36 @@ TOBACCO_CLASSES = [
     "tobacco field",
     "tobacco harvest",
     "tobacco drying",
-    "tobacco storage",
     "tobacco bales",
-    "tobacco farm",
-    "tobacco warehouse"
 ]
+
+# Threshold for tobacco detection (cosine similarity)
+SIMILARITY_THRESHOLD = 0.25  # adjust as needed
+
+# Default login credentials for TIMB officer (use env to override)
+DEFAULT_EMAIL = os.getenv('LARAVEL_EMAIL', 'timb@email.com')
+DEFAULT_PASSWORD = os.getenv('LARAVEL_PASSWORD', 'password123')
+
+# Laravel API endpoints
+LOGIN_URL = 'http://127.0.0.1:8000/api/login'
+CLEARANCE_URL_TEMPLATE = 'http://127.0.0.1:8000/api/tobacco_listings/{listing_id}/timb_clearance'
 
 def is_tobacco_image(image_path):
     """
-    Detect if an image contains tobacco using CLIP
-    
-    Args:
-        image_path (str): Path to the image file
-    
-    Returns:
-        bool: True if image is likely to contain tobacco, False otherwise
+    Detect if an image contains tobacco using CLIP via cosine similarity
     """
     try:
-        # Load and preprocess the image
         image = preprocess(Image.open(image_path)).unsqueeze(0).to(device)
-        
-        # Prepare text descriptions
-        text = clip.tokenize(TOBACCO_CLASSES).to(device)
-        
-        # Get image and text features
+        text_tokens = clip.tokenize(TOBACCO_CLASSES).to(device)
         with torch.no_grad():
-            image_features = model.encode_image(image)
-            text_features = model.encode_text(text)
-        
-        # Compute similarity
-        similarity = (100.0 * image_features @ text_features.T).softmax(dim=-1)
-        
-        # Check if any class has high similarity
-        max_similarity = similarity.max().item()
-        
-        print(f"Similarity scores: {similarity}")
-        print(f"Max similarity: {max_similarity}")
-        
-        # Threshold for tobacco detection (adjust as needed)
-        return max_similarity > 0.2
-    
+            img_feats = model.encode_image(image)
+            txt_feats = model.encode_text(text_tokens)
+        img_feats = img_feats / img_feats.norm(dim=-1, keepdim=True)
+        txt_feats = txt_feats / txt_feats.norm(dim=-1, keepdim=True)
+        sims = (img_feats @ txt_feats.T).squeeze(0).cpu().numpy()
+        max_sim = float(np.max(sims))
+        print(f"Max cosine similarity: {max_sim}")
+        return max_sim > SIMILARITY_THRESHOLD
     except Exception as e:
         print(f"Error in tobacco detection: {e}")
         return False
@@ -68,95 +58,54 @@ def is_tobacco_image(image_path):
 def detect_tobacco():
     """
     Endpoint to detect tobacco in uploaded images
-    
-    Expected request:
-    - Multipart form data with images
-    - Authorization header
-    - Listing ID as a parameter
     """
-    # Verify authorization token
-    auth_token = request.headers.get('Authorization')
-    expected_token = os.getenv('LARAVEL_API_TOKEN', '5|76DjmvFhJAw05KH30jqGor4QUcE2SXmXlbcHgWaH1ce87dfb')
-    
-    if not auth_token or auth_token.split(' ')[-1] != expected_token:
-        return jsonify({
-            'status': 'error',
-            'message': 'Unauthorized'
-        }), 401
-    
-    # Check if images are present
+    # No client auth token check; rely on login for clearance operations
     if 'images[]' not in request.files:
-        return jsonify({
-            'status': 'error', 
-            'message': 'No images uploaded'
-        }), 400
-    
-    # Get images and listing ID
+        return jsonify({'status': 'error', 'message': 'No images uploaded'}), 400
+
     images = request.files.getlist('images[]')
     listing_id = request.form.get('listing_id')
-    
     if not listing_id:
-        return jsonify({
-            'status': 'error',
-            'message': 'No listing ID provided'
-        }), 400
-    
-    # Temporary directory to save uploaded images
+        return jsonify({'status': 'error', 'message': 'No listing ID provided'}), 400
+
     upload_dir = 'uploads'
     os.makedirs(upload_dir, exist_ok=True)
-    
-    # Track tobacco detection results
-    tobacco_detected = []
-    
+    results = []
+
     try:
-        # Process each image
-        for image in images:
-            # Save image temporarily
-            image_path = os.path.join(upload_dir, image.filename)
-            image.save(image_path)
-            
-            # Detect tobacco
-            is_tobacco = is_tobacco_image(image_path)
-            tobacco_detected.append(is_tobacco)
-            
-            # Clean up temporary file
-            os.remove(image_path)
-        
-        # Determine overall tobacco detection
-        is_tobacco = any(tobacco_detected)
-        
-        # If tobacco is detected, trigger TIMB clearance in Laravel
-        if is_tobacco:
-            try:
-                # Prepare request to Laravel API
-                response = requests.post(
-                    f'http://127.0.0.1:8000/api/tobacco_listings/{listing_id}/timb_clearance',
-                    headers={
-                        'Authorization': f'Bearer {expected_token}',
-                        'Accept': 'application/json'
-                    }
-                )
-                
-                print(f"TIMB Clearance Response: {response.status_code}, {response.text}")
-            except Exception as e:
-                print(f"Error triggering TIMB clearance: {e}")
-        
-        return jsonify({
-            'status': 'success',
-            'is_tobacco': is_tobacco,
-            'detection_results': tobacco_detected
-        })
-    
+        for img in images:
+            path = os.path.join(upload_dir, img.filename)
+            img.save(path)
+            detected = is_tobacco_image(path)
+            results.append(detected)
+            os.remove(path)
+
+        tobacco_present = any(results)
+        if tobacco_present:
+            # Login to get dynamic token
+            login_resp = requests.post(LOGIN_URL, json={
+                'email': DEFAULT_EMAIL,
+                'password': DEFAULT_PASSWORD
+            })
+            if login_resp.ok:
+                token = login_resp.json().get('token')
+                if token:
+                    clearance_url = CLEARANCE_URL_TEMPLATE.format(listing_id=listing_id)
+                    clr_resp = requests.post(
+                        clearance_url,
+                        headers={'Authorization': f'Bearer {token}', 'Accept': 'application/json'}
+                    )
+                    print(f"Clearance status: {clr_resp.status_code}")
+                else:
+                    print("Login succeeded but no token received")
+            else:
+                print(f"Login failed: {login_resp.status_code}")
+
+        return jsonify({'status': 'success', 'is_tobacco': tobacco_present, 'detection_results': results})
+
     except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 if __name__ == '__main__':
-    # Ensure environment variables are set
     os.environ.setdefault('FLASK_ENV', 'development')
-    os.environ.setdefault('LARAVEL_API_TOKEN', '5|76DjmvFhJAw05KH30jqGor4QUcE2SXmXlbcHgWaH1ce87dfb')
-    
-    # Run the Flask app
-    app.run(debug=True, port=5000)
+    app.run(debug=False, port=5000)
